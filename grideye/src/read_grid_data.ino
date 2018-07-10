@@ -184,6 +184,8 @@ update_config(bool stale)
             DBG_PRINT(F("Updating Config - "));
             status = config.set(CONFIG_TEMP_KEY, temp_c);
             report_status(status);
+
+            amg.setInterruptLevels(temp_c, TEMP_INT_LOW);
         }
     }
 }
