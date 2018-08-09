@@ -22,7 +22,7 @@
 Helium  helium(&atom_serial);
 Channel channel(&helium);
 Config config(&channel);
-int32_t temp_c = 25;
+int32_t temp_c = 30;
 unsigned long cur_time;
 unsigned long start_time;
 int32_t send_interval = 10000;
@@ -36,12 +36,11 @@ Adafruit_AMG88xx amg;
 //INT pin from the sensor board goes to this pin on your microcontroller board
 #define INT_PIN 2
 
-#define TEMP_INT_HIGH 25
+#define TEMP_INT_HIGH 30
 #define TEMP_INT_LOW 15
 
 volatile bool intReceived = false;
 uint8_t pixelInts[8];
-int count = 0; 
 /******* 
          bit 0  bit 1  bit 2  bit 3  bit 4  bit 5  bit 6  bit 7
 byte 0 |  0      1      0      0      0      0      0      1
@@ -117,9 +116,7 @@ loop()
             Serial.println(pixelInts[i], BIN);
         }
         Serial.println();
-
         amg.clearInterrupt();
-        reading_3 = 1;
         intReceived = false;
     }
 
@@ -136,10 +133,11 @@ loop()
         // Send data to channel
         channel_send(&channel, CHANNEL_NAME, buffer, used);
         // Print status and result
-        // update_config(true);
+        update_config(true);
         // Wait a while till the next time
-        reading_3 = 0;
         start_time = cur_time;
+        Serial.println(reading_3);
+        reading_3 = 0;
     }
 }
 
@@ -158,7 +156,7 @@ update_config(bool stale)
             status = config.set(CONFIG_INTERVAL_KEY, send_interval);
             report_status(status);
         }
-        /*
+        
         status = config.get(CONFIG_TEMP_KEY, &temp_c, 5);
         report_status(status);
         
@@ -170,7 +168,7 @@ update_config(bool stale)
 
             amg.setInterruptLevels(temp_c, TEMP_INT_LOW);
         }
-        */
+        
     }
 }
 
@@ -178,4 +176,5 @@ void AMG88xx_ISR() {
   //keep your ISR short!
   //we don't really want to be reading from or writing to the sensor from inside here.
   intReceived = true;
+  reading_3 = 1;
 }
