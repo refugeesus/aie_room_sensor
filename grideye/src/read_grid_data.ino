@@ -22,14 +22,13 @@
 Helium  helium(&atom_serial);
 Channel channel(&helium);
 Config config(&channel);
-int32_t temp_c = 32;
-unsigned long interrupt_time = 0;
-int32_t send_interval = 5000;
-int32_t current_send_interval;
-unsigned long interrupt_interval = 10000;
+int32_t temp_c = 25;
+unsigned long cur_time;
+unsigned long start_time;
+int32_t send_interval = 10000;
 int reading_1 = 0;
 int reading_2 = 0;
-bool reading_3 = false;
+int reading_3 = 0;
 
 CCS811 ccs(CCS811_ADDR);
 Adafruit_AMG88xx amg;
@@ -37,12 +36,12 @@ Adafruit_AMG88xx amg;
 //INT pin from the sensor board goes to this pin on your microcontroller board
 #define INT_PIN 2
 
-#define TEMP_INT_HIGH 34
+#define TEMP_INT_HIGH 25
 #define TEMP_INT_LOW 15
 
 volatile bool intReceived = false;
 uint8_t pixelInts[8];
-
+int count = 0; 
 /******* 
          bit 0  bit 1  bit 2  bit 3  bit 4  bit 5  bit 6  bit 7
 byte 0 |  0      1      0      0      0      0      0      1
@@ -59,13 +58,9 @@ void
 setup()
 {
     Serial.begin(9600);
-    DBG_PRINTLN(F("Starting"));
  
     pinMode(INT_PIN, INPUT);
   
-    // Begin communication with the Helium Atom
-    // The baud rate differs per supported board
-    // and is configured in Board.h
     helium.begin(HELIUM_BAUD_RATE);
     
     // Connect the Atom to the Helium Network
@@ -99,14 +94,13 @@ setup()
     attachInterrupt(digitalPinToInterrupt(INT_PIN), AMG88xx_ISR, FALLING);
 
     channel_create(&channel, CHANNEL_NAME);
+    start_time = millis();
 }
 
 void
 loop()
 {
-    unsigned long cur_time = millis();
-    StaticJsonBuffer<JSON_OBJECT_SIZE(2) + 100> jsonBuffer;
-    JsonObject & root = jsonBuffer.createObject();
+    cur_time = millis();
     if (ccs.dataAvailable())
     {
         ccs.readAlgorithmResults();
@@ -114,10 +108,8 @@ loop()
         reading_1 = ccs.getCO2();
         reading_2 = ccs.getTVOC();
     }
-
-    if(intReceived && (cur_time - interrupt_time) >= interrupt_interval) {
-        reading_3 = true;
-        interrupt_time = cur_time;
+    
+    if(intReceived) {
         
         amg.getInterrupt(pixelInts);
         
@@ -127,37 +119,28 @@ loop()
         Serial.println();
 
         amg.clearInterrupt();
-
+        reading_3 = 1;
         intReceived = false;
     }
-    else if (intReceived) {
-        
-        amg.clearInterrupt();
-        
-        intReceived = false;
-        
+
+    if ((cur_time - start_time) > send_interval) {
+        StaticJsonBuffer<JSON_OBJECT_SIZE(2) + 100> jsonBuffer;
+        JsonObject & root = jsonBuffer.createObject();
+        uint8_t used; 
+        char buffer[HELIUM_MAX_DATA_SIZE];
+        root[F("co2")] = reading_1;
+        root[F("tvoc")] = reading_2;
+        root[F("used")] = reading_3;
+
+        used = root.printTo(buffer, HELIUM_MAX_DATA_SIZE);
+        // Send data to channel
+        channel_send(&channel, CHANNEL_NAME, buffer, used);
+        // Print status and result
+        // update_config(true);
+        // Wait a while till the next time
+        reading_3 = 0;
+        start_time = cur_time;
     }
-    else {
-        reading_3 = false; 
-    }
-
-    uint8_t used; 
-    char buffer[HELIUM_MAX_DATA_SIZE];
-    delay(500);
-    root[F("co2")] = reading_1;
-    root[F("tvoc")] = reading_2;
-    root[F("used")] = reading_3;
-
-    used = root.printTo(buffer, HELIUM_MAX_DATA_SIZE);
-    // Send data to channel
-    channel_send(&channel, CHANNEL_NAME, buffer, used);
-    // Print status and result   
-    update_config(true);
-    // Wait a while till the next time
-    delay(current_send_interval);
-
-    // Wait about 5 seconds
-
 }
 
 void
@@ -166,16 +149,16 @@ update_config(bool stale)
     if (stale)
     {
         DBG_PRINT(F("Fetching Config - "));
-        int status = config.get(CONFIG_INTERVAL_KEY, &current_send_interval, 5);
+        int status = config.get(CONFIG_INTERVAL_KEY, &send_interval, 5000);
         report_status(status);
         
         if (status == helium_status_OK)
         {
             DBG_PRINT(F("Updating Config - "));
-            status = config.set(CONFIG_INTERVAL_KEY, current_send_interval);
+            status = config.set(CONFIG_INTERVAL_KEY, send_interval);
             report_status(status);
         }
-        delay(500);
+        /*
         status = config.get(CONFIG_TEMP_KEY, &temp_c, 5);
         report_status(status);
         
@@ -187,6 +170,7 @@ update_config(bool stale)
 
             amg.setInterruptLevels(temp_c, TEMP_INT_LOW);
         }
+        */
     }
 }
 
